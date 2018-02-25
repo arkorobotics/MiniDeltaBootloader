@@ -1,0 +1,151 @@
+"How To" Log:
+
+
+
+How to reverse engineer the "firmware.bin" file
+===============================================
+
+Step -2: Attmept firmware upgrade from v37 to v41
+0) Format SD card and load files as described on wiki
+1) Attempt to update firmware for the printer...
+2) This fails. Printer is no longer responsive. LCD turns on and shows a menu, but that's only because it runs on a separate MCU
+
+Step -1: Attempt to flash the "firmware.bin" file to the Motion Controller
+-2) Open up the printer and follow the debug port pins
+-1) Attach st-link v2 debugger to debug port located on the Motion Controller
+0) Download "firmware.bin" from Monoprice wiki
+1) Using OpenOCD or st-flash, attempt to load the firmware to 0x0800_0000
+2) This fails. The printer motion controller doesn't boot, no firmware version present on LCD screen (running off an ESP8266)
+3) This likely means there was a bootloader living at 0x0800_0000 and that we just wrote over it... oops...
+4) Step 1 should have been avoided since we know the firmware upgrade method uses an SD Card (not possible with stock ST booloader)
+5) Cry
+6) With the bootloader gone, it's likely that the firmware.bin file only contains the vector table [note what the vector table is and how it's loaded] and motion controller program. The bootloader likely loaded the vector table into SRAM then branched to the start of the motion controller program. Which means the firmware must live at some offset from 0x0800_0000 (start of flash memory). Note we need to find the original offset since the firmware binary has hardcoded addresses. Also note that we can't just load the firmware to that address offset because the vector table needs to get loaded (bootloaders job).
+7) Based on this and some googling we find: https://jcastellssala.com/2016/12/15/cortex-m0-boot/
+
+Step 0: Gather information regarding mcu and arch
+0) STM32F070CB
+1) ARM Cortex M0
+2) Instruction Set: Thumb-2
+3) Endianess: Little Endian
+4) Stack Pointer: Decrements on push
+5) Program Counter: Increases on step
+6) Datasheets: http://www.st.com/content/ccc/resource/technical/document/datasheet/31/4f/10/5f/a5/32/46/42/DM00141386.pdf/files/DM00141386.pdf/jcr:content/translations/en.DM00141386.pdf
+7) Reference Manual: http://www.st.com/content/ccc/resource/technical/document/reference_manual/cf/10/a8/c4/29/fb/4c/42/DM00091010.pdf/files/DM00091010.pdf/jcr:content/translations/en.DM00091010.pdf
+8) Instruction Set: http://www.st.com/content/ccc/resource/technical/document/programming_manual/fc/90/c7/17/a1/44/43/89/DM00051352.pdf/files/DM00051352.pdf/jcr:content/translations/en.DM00051352.pdf
+
+Step 1: Reverse the firmware binary using Binary Ninja (thanks to Adam and Leo):
+-2) Download Binary Ninja
+-1) Download and install Adam's Firmware Image tool: https://gist.github.com/adamgreig/9fbbf259e56f580d559d2c21f394189c
+0) Copy firmware.bin to firmware_v41.bin
+1) Open firmware_v41.bin using Binary Ninja and look through the first few words
+2) Note in Reference Manual page 170, the Vector Table at the start of the program:
+Address Offset 0x0000_0004 tells you the reset vector: "F5 71 01 08" -(LE)-> Reset Vector: 0x080171F5
+Note: based on the location of the Reset Vector (near the end) it's likely the final function
+3) In ARM, if you branch to an even address it's seen as ARM assembly, where as odd addresses are seen as Thumb2, thus the Entry Point is actually: 0x080171F4 (note: the subroutine at this address branches to the start of the program "flash_offset+4")
+4) Entry Point: 0x080171F4
+5) Using the knowledge that pages have a length 0x800, we try a few different offsets divisible by it until the dissembler finds several functions. After trying 0x800, 0x1000, 0x1800, we find many functions when trying 0x2000 as the load address offset.
+6) Load Address: 0x08002000
+7) Using Binary Ninja, open firmware_v41.bin using Load Address: 0x08002000 and Entry Point: 0x080171F4
+
+Step 2: Write a bootloader to load the vector table and to start the program
+0) Reference https://jcastellssala.com/2016/12/15/cortex-m0-boot/
+1) Look for open source stm32 bootloader which support SD card loading (likely what monoprice did)
+2) Discovered "OpenBLT", supports SD Card loading and the default code size is 8K! (0x2000)
+https://www.feaser.com/en/openblt.php
+3) Copy example project stm32f091 and modify it for stm32f070
+4) Setup example bootloader code to be 8K in size and to load the vector table from 0x08002000 into RAM
+5) Set program start address from address located at (0x08002000+4) => 0x080171F4 (program entry point)
+5) Built and compiled!
+6) Opened with Binary Ninja to confirm build instructions
+7) Added zero padding to make the bootloder bin exactly 8K in size (line 512)
+8) Appended firmware_v41.bin to the bootloader bin (openblt_STM32F070xB.bin) at 8K, creating hacked_v41.bin
+9) Disassembled to check bootloader, note that it will branch to 0x080171F4
+10) Load firmware using openocd then run "reset halt", note the program counter value, this is the entry point of the bootloader (0x08000198)
+11) Resume the debugger, halt after a while to see where it is.
+12) PC is somewhere in program memory, so things are executing there... however the LCD is not responding!
+13) Use logic analyzer to decode communication between the LCD MCU and the Motion Controller MCU
+	Black Wire (VCC) - Don't ask me why the black wire is vcc...
+	White Wire (Suspected: LCD RX, MC TX) - Channel 1
+	Green Wire (Suspected: LCD TX, MC RX) - Channel 2
+	Red Wire (GND) - Don't ask me why the red wire is gnd...
+	White and Green wires appear to be connected to USART 1 (visual obersvation)
+14) White Wire talks first when powered on. Appears to be UART at 312500 baud (VERY FAST)
+15) Lots of data on white wire, decodes as ascii text: "serial init\n ...."
+16) Not sure if LCD or MC talking
+17) Erase MC firmware, rerun test, white wire is quite (VERY GOOD THING)
+18) Green Wire appears to be at a slower baud and isn't decoding correctly
+19) Suspect that the clock is running too fast and that it needs to be slowed down
+20) Use David's printer to check timing (Motion controller is talking first, but it maybe that the bootloader is suppose to delay) and check baud rate of White Wire.
+21) White Wire baud on David's printer is 512820 baud
+22) Green Wire is still not decoding
+23) On David's printer
+	- The MC program comes up 123ms after power on where as mine start within 5ms...
+	- The MC baud rate is 512820 baud
+24) So, we need to speed things up and delay our response
+25) Back to the bootloader:
+	TODO:
+	- Delay program start by 118ms (123ms - 5ms), after tuning timer, more like 124ms
+	- Reconfigure clock such that the baud rate increases to 512820 baud
+26) Delaying was easy.. getting the clock right is painful
+27) Attempted to configure the USART1 clock in the bootloader before program load
+28) 
+
+
+
+How to flash the Motion Controller with hacked firmware:
+========================================================
+Terminal 1:
+------------------------------------------------------------------------------------------------------------------------------
+$ cd ~/Documents/3D\ Printer/MPMiniDelta_Hacked/v41_reversed/
+$ openocd -f /usr/local/share/openocd/scripts/interface/stlink-v2.cfg -f /usr/local/share/openocd/scripts/target/stm32f0x.cfg
+
+output:
+-------
+adapter speed: 1000 kHz
+adapter_nsrst_delay: 100
+none separate
+Info : Unable to match requested speed 1000 kHz, using 950 kHz
+Info : Unable to match requested speed 1000 kHz, using 950 kHz
+Info : clock speed 950 kHz
+Info : STLINK v2 JTAG v17 API v2 SWIM v4 VID 0x0483 PID 0x3748
+Info : using stlink api v2
+Info : Target voltage: 3.126620
+Info : stm32f0x.cpu: hardware has 4 breakpoints, 2 watchpoints
+
+procedure:
+----------
+See Terminal 2
+
+
+Terminal 2:
+------------------------------------------------------------------------------------------------------------------------------
+$ telnet localhost 4444
+
+output:
+-------
+Trying ::1...
+telnet: connect to address ::1: Connection refused
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
+Open On-Chip Debugger
+>
+
+procedure:
+----------
+> reset halt
+adapter speed: 1000 kHz
+target halted due to debug-request, current mode: Thread
+xPSR: 0xc1000000 pc: 0xfffffffe msp: 0xfffffffc
+
+
+> stm32f0x mass_erase 0
+device id = 0x20016448
+flash size = 128kbytes
+stm32x mass erase complete
+
+>flash write_bank 0 firmware.bin [offset in decimal]
+
+
+
+
