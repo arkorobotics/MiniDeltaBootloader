@@ -1,3 +1,7 @@
+//
+// STM32F070CB - Simple Bootloader
+// By: Arko
+//
 /************************************************************************************//**
 * \file         Demo\ARMCM0_STM32F0_Nucleo_F091RC_GCC\Boot\main.c
 * \brief        Bootloader application source file.
@@ -47,14 +51,11 @@ int main(void)
 {
   /* initialize the microcontroller */
   CpuInit();
-  /* initialize the watchdog */
-  //CopInit();
   /* initialize the millisecond timer */
   TimerInit();
-  /* initialize non-volatile memory driver */
-  //NvmInit();
 
-  // Poorly Written Delay
+  // Poorly Written Delay Routine
+  // --> This emulates the delay of the original bootloader
   blt_int32u start_time = TimerGet();
   blt_int32u current_time = TimerGet();
 
@@ -66,6 +67,7 @@ int main(void)
   // Magic words
   *(uint32_t*)0x20000400 = 0xDEADBEEF;
 
+  // Load vector table and start the applicaiton
   CpuStartUserProgram();
 
   /* program should never get here */
