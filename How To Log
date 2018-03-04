@@ -88,7 +88,26 @@ https://www.feaser.com/en/openblt.php
 	- Reconfigure clock such that the baud rate increases to 512820 baud
 26) Delaying was easy.. getting the clock right is painful
 27) Attempted to configure the USART1 clock in the bootloader before program load
-28) 
+28) Brute forcing the usart1 settings is a waste of time
+29) Using the working printer, I'm going to reveverse the v37 firmware, find the entry point then find where the clock configuration is being written. Next I'm going to connect to it using the debugger, and attempt to extract the RCC reg values. Then I'm going to attempt to set those values in SystemInit in my bootloader.
+30) SWITCHING TO WORKING PRINTER NOW, USING *****V37******:
+31) Open v37 firmware in hex editor, find entry point address (assume 0x0800_2000 for load address)
+32) Reset vector (offset+4) in little endian: 0x0801_6EB9, but we need to ignore the lsb, so:
+V37 Entry Point: 0x0801_6EB8
+V37 Load Address: 0x8000_2000
+33) Find where RCC registers are being written to
+34) Open reference manual, look up peripheral addresses for RCC
+35) RCC->CR (offset 0x00), starts at 0x4002_1000
+36) Search for "\x00\x10\x02\x40", didn't find it, trying +4 offset
+37) Search for "\x04\x10\x02\x40", found getting loaded at 0x0801520a
+38) Code is ORing and ANDing against the existing values. Even modifiying bits that are reserved... WTF
+39) No matter what RCC values I try, it never works (for both v37 and v41)
+***BACK TO V41****
+40) Leo finds that the firmware is checking 0x2000400 for 0xDEADBEEF. Firmware does different things based on that check (one of them is RCC configs), this happens at address 0x08015A46: https://www.irccloud.com/pastebin/9woP2Eym/
+41) Add "*(uint32_t*)0x20000400 = 0xDEADBEEF;" to bootloader
+42) IT WOOORKKKSSSS!!!!!!
+
+
 
 
 

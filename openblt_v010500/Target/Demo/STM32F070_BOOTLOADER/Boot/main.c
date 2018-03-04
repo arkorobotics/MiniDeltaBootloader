@@ -30,14 +30,12 @@
 * Include files
 ****************************************************************************************/
 #include "boot.h"                                /* bootloader generic header          */
-#include "uart.h"
 #include "stm32f0xx.h"                           /* STM32 registers and drivers        */
 
 
 /****************************************************************************************
 * Function prototypes
 ****************************************************************************************/
-
 
 /************************************************************************************//**
 ** \brief     This is the entry point for the bootloader application and is called
@@ -50,21 +48,24 @@ int main(void)
   /* initialize the microcontroller */
   CpuInit();
   /* initialize the watchdog */
-  CopInit();
+  //CopInit();
   /* initialize the millisecond timer */
   TimerInit();
   /* initialize non-volatile memory driver */
-  NvmInit();
+  //NvmInit();
 
   // Poorly Written Delay
   blt_int32u start_time = TimerGet();
   blt_int32u current_time = TimerGet();
 
-  while((current_time - start_time) < 124)
+  while((current_time - start_time) < 118)
   {
   	current_time = TimerGet();
   }
   
+  // Magic words
+  *(uint32_t*)0x20000400 = 0xDEADBEEF;
+
   CpuStartUserProgram();
 
   /* program should never get here */

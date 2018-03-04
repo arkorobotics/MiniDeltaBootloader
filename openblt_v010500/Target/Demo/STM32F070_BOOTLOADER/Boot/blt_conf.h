@@ -101,7 +101,7 @@
 /** \brief Configure number of bytes in the host->target data packet. */
 #define BOOT_COM_UART_RX_MAX_DATA       (64)
 /** \brief Select the desired UART peripheral as a zero based index. */
-#define BOOT_COM_UART_CHANNEL_INDEX     (1)
+#define BOOT_COM_UART_CHANNEL_INDEX     (0)
 
 
 /****************************************************************************************
