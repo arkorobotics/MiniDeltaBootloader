@@ -11,6 +11,9 @@ How to flash the Motion Controller with the modified firmware:
 	`$ brew update openocd`
 
 
+## Debug Port Pinout
+<img src="debug_pinout.png">
+
 ## Flashing the Printer
 
 Terminal 1: Start OpenOCD Server
