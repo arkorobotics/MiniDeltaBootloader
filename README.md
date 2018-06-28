@@ -49,6 +49,10 @@ Open On-Chip Debugger
 
 > reset halt
 
+> stm32f0x unlock 0
+
+[power cycle the board]
+
 > stm32f0x mass_erase 0
 
 > flash write_bank 0 hacked_v41.bin 0
