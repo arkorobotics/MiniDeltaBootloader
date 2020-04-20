@@ -8,7 +8,7 @@ How to flash the Motion Controller with the modified firmware:
 
 1. Install OpenOCD
 
-	`$ brew update openocd`
+	`$ brew install openocd`
 
 
 ## Debug Port Pinout
